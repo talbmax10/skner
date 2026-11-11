@@ -1,0 +1,14 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+app/build/
+# Tesseract traineddata is downloaded at build time (see .github/workflows/android.yml),
+# not committed — binary blobs, ~5 MB total.
+/app/src/main/assets/tessdata/*.traineddata
