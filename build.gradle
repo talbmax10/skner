@@ -1,0 +1,24 @@
+// Top-level build file for Skenr (native Android, Kotlin + Jetpack Compose).
+// Build shape copied from the proven axaf template (AGP 8.5.2 / Kotlin 1.9.24 / Gradle 8.9 / JDK 17).
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.5.2'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.buildDir
+}
