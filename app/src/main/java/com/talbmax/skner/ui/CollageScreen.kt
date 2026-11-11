@@ -69,7 +69,7 @@ fun CollageScreen(onBack: () -> Unit) {
                 }
                 bmp?.let {
                     Image(bitmap = it.asImageBitmap(), contentDescription = "صورة",
-                        modifier = Modifier.size(90, 120))
+                        modifier = Modifier.size(90.dp, 120.dp))
                 }
             }
         }
