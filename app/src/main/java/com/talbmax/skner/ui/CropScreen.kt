@@ -62,7 +62,11 @@ fun CropScreen(imagePath: String, onDone: (String, String) -> Unit, onBack: () -
         )
     }
     var dragIndex by remember { mutableStateOf(-1) }
-    val filters = listOf("enhance" to "تحسين", "original" to "أصلي", "bw" to "أبيض وأسود", "gray" to "رمادي")
+    val filters = listOf(
+        "enhance" to "تحسين", "original" to "أصلي", "bw" to "أبيض وأسود",
+        "gray" to "رمادي", "magic" to "سحري", "lighten" to "تفتيح",
+        "eco" to "اقتصادي", "invert" to "عكس", "no_shadow" to "إزالة الظل"
+    )
 
     androidx.compose.runtime.LaunchedEffect(imagePath) {
         bitmap = withContext(Dispatchers.IO) { ImageTools.load(imagePath) }
