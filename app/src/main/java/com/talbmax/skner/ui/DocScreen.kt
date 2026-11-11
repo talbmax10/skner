@@ -96,7 +96,7 @@ fun DocScreen(
                         val bmp = remember(page.filePath) { ImageTools.load(page.filePath, 400) }
                         bmp?.let {
                             Image(bitmap = it.asImageBitmap(), contentDescription = "صفحة",
-                                modifier = Modifier.size(64, 84))
+                                modifier = Modifier.size(64.dp, 84.dp))
                         }
                         Column(Modifier.weight(1f)) {
                             Text("صفحة ${page.order + 1} • فلتر: ${page.filter}")
