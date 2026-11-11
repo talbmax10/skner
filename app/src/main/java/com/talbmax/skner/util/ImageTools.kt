@@ -29,9 +29,11 @@ object ImageTools {
         return file.absolutePath
     }
 
-    /** Filters: original / bw (black-white) / gray / enhance (contrast+sharpness look). */
+    /** Filters: original / bw (black-white) / gray / enhance (contrast+sharpness look)
+     *  + P0-2: magic / lighten / eco / invert / no_shadow. */
     fun applyFilter(src: Bitmap, filter: String): Bitmap {
         if (filter == "original") return src.copy(src.config ?: Bitmap.Config.ARGB_8888, true)
+        if (filter == "no_shadow") return noShadow(src)
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         val paint = Paint()
@@ -55,9 +57,153 @@ object ImageTools {
                     0f, 0f, 0f, 1f, 0f))
                 m.postConcat(c)
             }
+            "magic" -> {
+                // Magic Color: stronger saturation + contrast.
+                m.setSaturation(1.45f)
+                val c = ColorMatrix(floatArrayOf(
+                    1.18f, 0f, 0f, 0f, -10f,
+                    0f, 1.18f, 0f, 0f, -10f,
+                    0f, 0f, 1.18f, 0f, -10f,
+                    0f, 0f, 0f, 1f, 0f))
+                m.postConcat(c)
+            }
+            "lighten" -> {
+                val c = ColorMatrix(floatArrayOf(
+                    1.12f, 0f, 0f, 0f, 22f,
+                    0f, 1.12f, 0f, 0f, 22f,
+                    0f, 0f, 1.12f, 0f, 22f,
+                    0f, 0f, 0f, 1f, 0f))
+                m.postConcat(c)
+            }
+            "eco" -> {
+                // Eco (ink saving): less saturation, brighter background.
+                m.setSaturation(0.55f)
+                val c = ColorMatrix(floatArrayOf(
+                    1.08f, 0f, 0f, 0f, 30f,
+                    0f, 1.08f, 0f, 0f, 30f,
+                    0f, 0f, 1.08f, 0f, 30f,
+                    0f, 0f, 0f, 1f, 0f))
+                m.postConcat(c)
+            }
+            "invert" -> {
+                val c = ColorMatrix(floatArrayOf(
+                    -1f, 0f, 0f, 0f, 255f,
+                    0f, -1f, 0f, 0f, 255f,
+                    0f, 0f, -1f, 0f, 255f,
+                    0f, 0f, 0f, 1f, 0f))
+                m.postConcat(c)
+            }
         }
         paint.colorFilter = ColorMatrixColorFilter(m)
         canvas.drawBitmap(src, 0f, 0f, paint)
+        return out
+    }
+
+    /**
+     * No Shadow (P0-2): estimate the background illumination by downscaling +
+     * blurring, then divide the image by it. Cheap approximation of the
+     * shadow-removal used by document scanners.
+     */
+    fun noShadow(src: Bitmap): Bitmap {
+        val smallW = 64
+        val smallH = max(8, (src.height * smallW) / src.width)
+        val small = Bitmap.createScaledBitmap(src, smallW, smallH, true)
+        val blurred = boxBlur(small, 2)
+        val bg = Bitmap.createScaledBitmap(blurred, src.width, src.height, true)
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val srcPx = IntArray(src.width * src.height)
+        val bgPx = IntArray(src.width * src.height)
+        src.getPixels(srcPx, 0, src.width, 0, 0, src.width, src.height)
+        bg.getPixels(bgPx, 0, src.width, 0, 0, src.width, src.height)
+        val outPx = IntArray(srcPx.size)
+        for (i in srcPx.indices) {
+            val s = srcPx[i]; val b = bgPx[i]
+            fun div(chS: Int, chB: Int): Int {
+                val v = if (chB < 24) 255 else (chS * 255 / chB)
+                return v.coerceIn(0, 255)
+            }
+            outPx[i] = -0x1000000 or
+                (div(s shr 16 and 255, b shr 16 and 255) shl 16) or
+                (div(s shr 8 and 255, b shr 8 and 255) shl 8) or
+                div(s and 255, b and 255)
+        }
+        out.setPixels(outPx, 0, src.width, 0, 0, src.width, src.height)
+        return out
+    }
+
+    private fun boxBlur(src: Bitmap, radius: Int): Bitmap {
+        val w = src.width; val h = src.height
+        val px = IntArray(w * h)
+        src.getPixels(px, 0, w, 0, 0, w, h)
+        val tmp = IntArray(w * h)
+        val out = IntArray(w * h)
+        val d = radius * 2 + 1
+        for (y in 0 until h) {
+            var r = 0; var g = 0; var b = 0
+            for (x in -radius..radius) {
+                val c = px[y * w + x.coerceIn(0, w - 1)]
+                r += c shr 16 and 255; g += c shr 8 and 255; b += c and 255
+            }
+            for (x in 0 until w) {
+                tmp[y * w + x] = -0x1000000 or ((r / d) shl 16) or ((g / d) shl 8) or (b / d)
+                val xOut = x - radius; val xIn = x + radius + 1
+                if (xOut >= 0) {
+                    val c = px[y * w + xOut]
+                    r -= c shr 16 and 255; g -= c shr 8 and 255; b -= c and 255
+                }
+                if (xIn < w) {
+                    val c = px[y * w + xIn]
+                    r += c shr 16 and 255; g += c shr 8 and 255; b += c and 255
+                }
+            }
+        }
+        for (x in 0 until w) {
+            var r = 0; var g = 0; var b = 0
+            for (y in -radius..radius) {
+                val c = tmp[y.coerceIn(0, h - 1) * w + x]
+                r += c shr 16 and 255; g += c shr 8 and 255; b += c and 255
+            }
+            for (y in 0 until h) {
+                out[y * w + x] = -0x1000000 or ((r / d) shl 16) or ((g / d) shl 8) or (b / d)
+                val yOut = y - radius; val yIn = y + radius + 1
+                if (yOut >= 0) {
+                    val c = tmp[yOut * w + x]
+                    r -= c shr 16 and 255; g -= c shr 8 and 255; b -= c and 255
+                }
+                if (yIn < h) {
+                    val c = tmp[yIn * w + x]
+                    r += c shr 16 and 255; g += c shr 8 and 255; b += c and 255
+                }
+            }
+        }
+        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        result.setPixels(out, 0, w, 0, 0, w, h)
+        return result
+    }
+
+    data class SignatureDraw(
+        val bitmap: Bitmap,
+        val xFrac: Float,
+        val yFrac: Float,
+        val scaleFrac: Float
+    )
+
+    /** Draw saved signature templates onto a page copy (P0-8). */
+    fun withSignatures(src: Bitmap, placements: List<SignatureDraw>): Bitmap {
+        if (placements.isEmpty()) return src
+        val out = src.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(out)
+        for (p in placements) {
+            val w = (src.width * p.scaleFrac).toInt().coerceAtLeast(16)
+            val h = (p.bitmap.height * w) / p.bitmap.width
+            val scaled = Bitmap.createScaledBitmap(p.bitmap, w, h, true)
+            canvas.drawBitmap(
+                scaled,
+                (p.xFrac * src.width).coerceIn(0f, (src.width - w).toFloat()),
+                (p.yFrac * src.height).coerceIn(0f, (src.height - h).toFloat()),
+                null
+            )
+        }
         return out
     }
 
