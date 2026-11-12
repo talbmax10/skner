@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -55,8 +54,10 @@ import java.io.FileOutputStream
 fun SignatureScreen(state: AppState, docId: String?, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val strokes = remember { mutableStateListOf<ComposePath>() }
-    var currentPath by remember { mutableStateOf<ComposePath?>(null) }
+    // Each stroke is a list of finger points (kept as data, so saving to PNG
+    // needs no Compose-Path conversion).
+    val strokes = remember { mutableStateListOf<MutableList<Offset>>() }
+    var currentStroke by remember { mutableStateOf<MutableList<Offset>?>(null) }
     var name by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf<List<SignatureEntity>>(emptyList()) }
@@ -76,18 +77,23 @@ fun SignatureScreen(state: AppState, docId: String?, onBack: () -> Unit) {
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragStart = { pos ->
-                            val p = ComposePath().apply { moveTo(pos.x, pos.y) }
-                            currentPath = p
-                            strokes.add(p)
+                            val stroke = mutableListOf(pos)
+                            currentStroke = stroke
+                            strokes.add(stroke)
                         },
-                        onDragEnd = { currentPath = null },
+                        onDragEnd = { currentStroke = null },
                         onDrag = { change, _ ->
-                            currentPath?.lineTo(change.position.x, change.position.y)
+                            currentStroke?.add(change.position)
                         }
                     )
                 }
         ) {
-            for (p in strokes) {
+            for (points in strokes) {
+                if (points.size < 2) continue
+                val p = ComposePath().apply {
+                    moveTo(points[0].x, points[0].y)
+                    for (i in 1 until points.size) lineTo(points[i].x, points[i].y)
+                }
                 drawPath(
                     p, color = ComposeColor.Black,
                     style = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round)
@@ -96,7 +102,7 @@ fun SignatureScreen(state: AppState, docId: String?, onBack: () -> Unit) {
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { strokes.clear(); currentPath = null }) { Text("مسح الرسم") }
+            OutlinedButton(onClick = { strokes.clear(); currentStroke = null }) { Text("مسح الرسم") }
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
                 label = { Text("اسم التوقيع") }, modifier = Modifier.weight(1f)
@@ -121,20 +127,12 @@ fun SignatureScreen(state: AppState, docId: String?, onBack: () -> Unit) {
                 }
                 val scaleX = w / 1000f
                 val scaleY = h / 400f
-                for (cp in strokes) {
+                for (points in strokes) {
+                    if (points.size < 2) continue
                     val ap = android.graphics.Path()
-                    val pm = android.graphics.PathMeasure(
-                        androidx.compose.ui.graphics.asAndroidPath(cp), false
-                    )
-                    val pts = FloatArray(2)
-                    var dist = 0f
-                    val len = pm.length
-                    var first = true
-                    while (dist <= len) {
-                        pm.getPosTan(dist, pts, null)
-                        if (first) { ap.moveTo(pts[0] * scaleX, pts[1] * scaleY); first = false }
-                        else ap.lineTo(pts[0] * scaleX, pts[1] * scaleY)
-                        dist += 4f
+                    ap.moveTo(points[0].x * scaleX, points[0].y * scaleY)
+                    for (i in 1 until points.size) {
+                        ap.lineTo(points[i].x * scaleX, points[i].y * scaleY)
                     }
                     canvas.drawPath(ap, paint)
                 }
@@ -149,7 +147,7 @@ fun SignatureScreen(state: AppState, docId: String?, onBack: () -> Unit) {
                     state.saveSignature(sigName, file.absolutePath)
                     saved = state.signaturesOnce()
                     strokes.clear()
-                    currentPath = null
+                    currentStroke = null
                     status = "تم حفظ التوقيع «$sigName»."
                 }
             },
